@@ -1,0 +1,86 @@
+pipeline{
+    agent any
+    stages {
+        stage('git clone') {
+            steps{
+                git branch: 'main',
+                url: 'https://github.com/Sidharth034/jenkins-kubernetes-example.git'
+            }
+        }
+        stage('git secret check'){
+            steps{
+                sh 'docker run -itd gesellix/trufflehog --json https://github.com/Sidharth034/jenkins-kubernetes-example.git > /tmp/trufflehog'
+                sh 'cat trufflehog'
+            }
+        }
+        stage('oswap dependency check'){
+            steps{
+                echo 'delete old file'
+                sh 'rm -rf /var/lib/jenkins/OWASP-Dependency-Check/reports/*'
+                echo 'fetch from git'
+                sh 'cd /var/lib/jenkins/workspace/end-pipe-test/'
+                echo 'give  executable permissions to .sh file'
+                sh 'chmod +x oswap-dependency-check.sh'
+                echo 'execute .sh file'
+                sh './oswap-dependency-check.sh'
+                //dependencyCheckPublisher pattern: '/var/lib/jenkins/OWASP-Dependency-Check/reports/dependency-check-report.xml'
+                
+            }
+        }
+        stage('Build Docker Image') {
+            steps {
+                script {
+                  sh 'docker build -t 18.189.21.118:9001/nodejsapp:latest . '
+                 // sh 'docker login  http://18.189.21.118:9001/repository/docker-app/ -u jenkins -p jenkins'
+                  //sh 'docker push 18.189.21.118:9001/nodejsapp:latest'
+                }
+            }
+        }
+        stage('Deploy Docker Image') {
+            steps {
+               // sh 'sudo docker login -u sidharth034 -p $dockerhub-pass'                		
+	//echo 'Login Completed'      
+                script {
+                    
+                    withCredentials([string(credentialsId: 'nexus-passwd', variable: 'jenkins')]) {
+                    sh 'docker login  http://18.189.21.118:9001/repository/docker-app/ -u jenkins -p ${jenkins}'
+                    sh 'docker push 18.189.21.118:9001/nodejsapp:latest'
+}
+}
+}
+
+                 //withCredentials([string(credentialsId: 'dockerhub-pwd', variable: 'dockerhubpwd')]) {
+                   // sh 'docker login -u devopshint -p ${dockerhubpwd}'
+                 //}  
+               //  sh 'docker push sidharth034/nodejsapp-1.0:latest'
+                //}
+            
+        }
+    
+    stage('Deploy App on k8s') {
+      steps {
+            sshagent(['kube-server-cred']) {
+            sh "scp -o StrictHostKeyChecking=no nodejsapp.yaml ubuntu@3.142.99.18:/home/ubuntu"
+            sh "ssh ubuntu@3.142.99.18 sudo kubectl apply -f ."
+            //sh 'hostname'
+            //sh 'hostname; ls ; pwd'
+         //   script {
+          //      try{
+            //        sh "ssh ubuntu@3.18.225.2 kubectl create -f ."
+              //  }catch(error){
+                //    sh "ssh ubuntu@3.18.225.2 kubectl create -f ."
+        //    }
+//}
+        }
+      
+    }
+    }
+    stage('DAST'){
+        steps{
+            sshagent(['zap-server']){
+                sh 'ssh -o StrictHostKeyChecking=no ubuntu@3.144.236.139 "docker run -t owasp/zap2docker-stable zap-baseline.py -t http://18.218.140.56:8080/webapp/" || true'
+            }
+        }
+    }
+}
+}
